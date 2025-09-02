@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Barcode Counter</title>
+  <meta name="theme-color" content="#0ea5e9" />
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <link rel="apple-touch-icon" href="icon-192.png">
+  <style>
+    :root{--bg:#0b1220;--panel:#0f172a;--muted:#94a3b8;--text:#e2e8f0;--accent:#22d3ee;--good:#22c55e;--bad:#ef4444;--warn:#f59e0b;}
+    *{box-sizing:border-box}
+    html,body{margin:0;height:100%;font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Inter,Arial,sans-serif;color:var(--text);background:linear-gradient(180deg,#0b1220,#0b1220 60%,#0a0f1a)}
+    .wrap{max-width:980px;margin:0 auto;padding:16px}
+    header{display:flex;gap:12px;align-items:center;justify-content:space-between;margin-bottom:12px}
+    h1{font-size:clamp(20px,4vw,28px);margin:0;font-weight:700;letter-spacing:.2px}
+    .card{background:rgba(15,23,42,.9);border:1px solid #1f2a44;border-radius:16px;box-shadow:0 8px 30px rgba(0,0,0,.35);}
+    .controls{display:grid;grid-template-columns:1fr;gap:12px;padding:12px}
+    @media(min-width:700px){.controls{grid-template-columns: 2fr 1fr 1fr}}
+    .control-group{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+    .badge{display:inline-flex;align-items:center;gap:6px;background:#12203a;border:1px solid #1f2a44;color:#cbd5e1;padding:6px 10px;border-radius:999px;font-size:12px}
+    select, input[type="number"], input[type="text"]{background:#0c162b;border:1px solid #213050;color:#e2e8f0;padding:10px 12px;border-radius:12px;outline:none;min-height:40px}
+    input.small{min-height:32px;padding:6px 8px;border-radius:10px}
+    input.filter{min-width:220px}
+    button{background:#0ea5e9;border:0;color:#001018;padding:10px 14px;border-radius:12px;font-weight:700;cursor:pointer;transition:.15s transform ease, .15s opacity ease}
+    button:hover{transform:translateY(-1px)}
+    button.secondary{background:#12203a;color:#cbd5e1;border:1px solid #1f2a44}
+    button.ghost{background:transparent;border:1px dashed #2a3b62;color:#9fb3ce}
+    button.danger{background:var(--bad);color:#fff}
+    .grid{display:grid;gap:12px}
+    .two{grid-template-columns:1fr}
+    @media(min-width:900px){.two{grid-template-columns:1.2fr .8fr}}
+    .video-wrap{position:relative;border-radius:16px;overflow:hidden;border:1px solid #1f2a44}
+    video{width:100%;height:auto;background:#000}
+    .overlay{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none}
+    .overlay .frame{width:min(75vw,440px);height:min(55vw,220px);border:2px dashed rgba(255,255,255,.25);border-radius:14px}
+    .status{display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:999px;background:#0b1a33;border:1px solid #1f2a44;position:absolute;left:12px;bottom:12px;color:#cbd5e1;font-size:12px}
+    .status .dot{width:8px;height:8px;border-radius:999px;background:#ef4444;box-shadow:0 0 0 3px rgba(239,68,68,.25)}
+    .status.on .dot{background:#22c55e;box-shadow:0 0 0 3px rgba(34,197,94,.25)}
+    table{width:100%;border-collapse:collapse}
+    th,td{padding:10px 8px;border-bottom:1px solid #1f2a44;text-align:left;vertical-align:middle}
+    th{font-size:12px;color:#9fb3ce;font-weight:600;text-transform:uppercase;letter-spacing:.06em;position:sticky;top:0;background:#0f172a;z-index:1}
+    .count{font-feature-settings:"tnum" 1, "lnum" 1; font-variant-numeric: tabular-nums; text-align:right}
+    .right{text-align:right}
+    .row-actions{display:flex;gap:6px}
+    .muted{color:var(--muted)}
+    .pill{display:inline-flex;align-items:center;gap:6px;padding:4px 8px;border-radius:999px;border:1px solid #1f2a44;background:#0c162b;color:#cbd5e1;font-size:12px}
+    .footer{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between;margin-top:12px;padding:12px}
+    .hint{font-size:12px;color:#9fb3ce}
+    .warn{color:#fbbf24;margin-left:.5rem}
+    tr.highlight{background:rgba(34,211,238,.08)}
+  </style>
+  <!-- ZXing (optional). If blocked/missing, app still works in Manual mode -->
+  <script src="https://unpkg.com/@zxing/library@0.20.0"></script>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <h1>📦 Barcode Counter</h1>
+      <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap">
+        <span class="pill">Currency
+          <input id="currency" class="small" type="text" value="LKR" style="width:70px" />
+        </span>
+        <button id="installBtn" class="ghost" hidden>➕ Install</button>
+        <div class="badge" id="totals" aria-live="polite">0 items · 0 unique · LKR 0.00</div>
+      </div>
+    </header>
+
+    <div class="grid two">
+      <section class="card">
+        <div class="controls">
+          <div class="control-group">
+            <select id="cameraSelect" title="Camera"></select>
+            <button id="startBtn">Start</button>
+            <button id="stopBtn" class="secondary">Stop</button>
+            <button id="torchBtn" class="ghost" title="Toggle flashlight" aria-pressed="false">🔦 Torch</button>
+            <span class="pill">Cooldown <input type="number" id="cooldown" value="1500" min="0" step="100" style="width:90px"> ms</span>
+            <span class="pill">Beep <input type="checkbox" id="beepToggle" checked></span>
+          </div>
+          <div class="control-group">
+            <input type="text" id="manualInput" placeholder="Type or paste a barcode..." />
+            <button id="addManual">Add</button>
+            <button id="undoBtn" class="secondary">Undo</button>
+            <button id="exportBtn">Export CSV</button>
+          </div>
+        </div>
+        <div class="video-wrap">
+          <video id="video" playsinline muted></video>
+          <div class="overlay"><div class="frame"></div></div>
+          <div id="liveStatus" class="status"><span class="dot"></span> <span class="label">Idle</span></div>
+        </div>
+        <div class="footer">
+          <div class="hint">
+            Tip: Use good lighting. Supports EAN-13, UPC-A/E, Code-128/39, QR.
+            <span id="dbStatus" class="warn"></span>
+            <span id="scanStatus" class="warn"></span>
+          </div>
+          <div class="row-actions">
+            <button id="clearAll" class="danger">Clear All</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="card" style="padding:12px">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin:8px 4px 12px; flex-wrap:wrap">
+          <strong>Scanned Items</strong>
+          <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap">
+            <input id="filter" class="filter small" type="text" placeholder="Filter by barcode or name..." />
+            <span class="muted" id="lastScan" aria-live="polite"></span>
+          </div>
+        </div>
+        <div style="overflow:auto; max-height:60vh">
+          <table id="table">
+            <thead>
+              <tr>
+                <th>Barcode</th>
+                <th>Name</th>
+                <th>Format</th>
+                <th class="count">Count</th>
+                <th class="right">Unit Price</th>
+                <th class="right">Line Total</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="tbody"></tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+  </div>
+
+<script>
+/* ===== PWA manifest + SW (cache-busted) ===== */
+(function(){
+  const manifest = { name:"Barcode Counter", short_name:"Barcodes", start_url:".", scope:".", display:"standalone",
+    background_color:"#0b1220", theme_color:"#0ea5e9",
+    icons:[{src:"icon-192.png",sizes:"192x192",type:"image/png"},{src:"icon-512.png",sizes:"512x512",type:"image/png"}]};
+  try{
+    const blob = new Blob([JSON.stringify(manifest)], {type:'application/manifest+json'});
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('link'); link.rel='manifest'; link.href=url; document.head.appendChild(link);
+  }catch{}
+})();
+if ('serviceWorker' in navigator){
+  const swCode = `
+    const CACHE='barcode-counter-v4';
+    const ASSETS=['./', self.location.pathname.endsWith('/')? self.location.pathname : './index.html',
+      'https://unpkg.com/@zxing/library@0.20.0'];
+    self.addEventListener('install',e=>{e.waitUntil(caches.open(CACHE).then(c=>c.addAll(ASSETS)).catch(()=>{})); self.skipWaiting();});
+    self.addEventListener('activate',e=>{e.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k!==CACHE).map(k=>caches.delete(k))))); self.clients.claim();});
+    self.addEventListener('fetch',e=>{
+      const r=e.request; if(r.method!=='GET') return;
+      e.respondWith(caches.match(r).then(c=>c||fetch(r).then(res=>{
+        try{const u=new URL(r.url); if(u.origin===self.location.origin){caches.open(CACHE).then(cache=>cache.put(r,res.clone())).catch(()=>{});} }catch{}
+        return res;
+      }).catch(()=>c|| (r.mode==='navigate'? caches.match('./index.html') : new Response('',{status:504})))));
+    });
+  `;
+  const blob = new Blob([swCode], {type:'application/javascript'});
+  const swUrl = URL.createObjectURL(blob);
+  window.addEventListener('load', ()=> navigator.serviceWorker.register(swUrl).catch(()=>{}));
+}
+/* Install button */
+let deferredPrompt=null; const installBtn=document.getElementById('installBtn');
+window.addEventListener('beforeinstallprompt', e=>{e.preventDefault(); deferredPrompt=e; installBtn.hidden=false;});
+installBtn.addEventListener('click', async()=>{ if(!deferredPrompt) return; await deferredPrompt.prompt(); await deferredPrompt.userChoice.catch(()=>{}); deferredPrompt=null; installBtn.hidden=true;});
+
+/* ===== App (fail-safe) ===== */
+(function(){
+  const video = document.getElementById('video');
+  const cameraSelect = document.getElementById('cameraSelect');
+  const startBtn = document.getElementById('startBtn');
+  const stopBtn = document.getElementById('stopBtn');
+  const torchBtn = document.getElementById('torchBtn');
+  const cooldownInput = document.getElementById('cooldown');
+  const beepToggle = document.getElementById('beepToggle');
+  const manualInput = document.getElementById('manualInput');
+  const addManual = document.getElementById('addManual');
+  const undoBtn = document.getElementById('undoBtn');
+  const exportBtn = document.getElementById('exportBtn');
+  const clearAll = document.getElementById('clearAll');
+  const bodyEl = document.getElementById('tbody');
+  const lastScan = document.getElementById('lastScan');
+  const totals = document.getElementById('totals');
+  const liveStatus = document.getElementById('liveStatus');
+  const filterInput = document.getElementById('filter');
+  const currencyInput = document.getElementById('currency');
+  const dbStatus = document.getElementById('dbStatus');
+  const scanStatus = document.getElementById('scanStatus');
+
+  let controls=null, currentTrack=null, scanning=false, torchOn=false;
+  let lastSeen={code:null,time:0}, lastScanCode=null;
+  const history=[];
+  const counts=new Map();
+  let productDB={};
+
+  /* Load product DB (won't crash if missing) */
+  fetch('products.json', {cache:'no-store'})
+    .then(r=> r.ok ? r.json() : Promise.reject(r.status))
+    .then(d=>{productDB=d||{}; dbStatus.textContent='';})
+    .catch(()=>{dbStatus.textContent='No products.json found — names & prices won’t autofill.';});
+
+  /* Persist */
+  const STORAGE='barcode-counter-v4';
+  try{
+    const saved=localStorage.getItem(STORAGE);
+    if(saved){ const data=JSON.parse(saved);
+      (data.items||[]).forEach(([code,obj])=> counts.set(code,{count:obj.count||0,format:obj.format||'',name:obj.name||'',price:+obj.price||0}));
+      if(data.currency) currencyInput.value=data.currency;
+      render();
+    }
+  }catch(e){ console.warn('Save load failed', e); }
+
+  function save(){ const items=[...counts.entries()].map(([k,v])=>[k,v]); localStorage.setItem(STORAGE, JSON.stringify({items, currency:currencyInput.value})); }
+  function ensureCtx(){ const C=window.AudioContext||window.webkitAudioContext; const ctx=(ensureCtx.ctx ||= new C()); if(ctx.state==='suspended') ctx.resume().catch(()=>{}); return ctx; }
+  function beep(ms=120,f=880){ if(!beepToggle.checked) return; try{ const ctx=ensureCtx(); const o=ctx.createOscillator(), g=ctx.createGain(); o.connect(g); g.connect(ctx.destination); o.frequency.value=f; o.type='sine'; const t=ctx.currentTime; g.gain.setValueAtTime(.12,t); o.start(t); g.gain.exponentialRampToValueAtTime(.0001,t+ms/1000); o.stop(t+ms/1000);}catch{}}
+  function fmt(n){ const c=(currencyInput.value||'LKR').trim(); return `${c} ${(+n||0).toFixed(2)}`;}
+  function grand(){ let T=0; counts.forEach(v=> T+=(+v.count||0)*(+v.price||0)); return T; }
+  function setLive(on){ scanning=on; liveStatus.classList.toggle('on',on); liveStatus.querySelector('.label').textContent=on?'Scanning':'Idle'; }
+  function updateTotals(){ let items=0; counts.forEach(v=> items+= v.count||0); totals.textContent=`${items} items · ${counts.size} unique · ${fmt(grand())}`; }
+  function btn(label, on){ const b=document.createElement('button'); b.textContent=label; b.addEventListener('click',on); return b; }
+
+  function render(){
+    const q=(filterInput.value||'').toLowerCase().trim();
+    bodyEl.innerHTML='';
+    for(const [code,{count,format,name,price}] of counts.entries()){
+      if(q && !(String(code).toLowerCase().includes(q) || String(name||'').toLowerCase().includes(q))) continue;
+      const tr=document.createElement('tr'); if(code===lastScanCode) tr.classList.add('highlight');
+
+      const tdCode=document.createElement('td'); tdCode.textContent=code;
+      const tdName=document.createElement('td'); const nameInput=document.createElement('input');
+      nameInput.className='small'; nameInput.placeholder='Item name'; nameInput.value=name||''; nameInput.addEventListener('change',()=>{ const it=counts.get(code); if(!it) return; it.name=nameInput.value.trim(); save(); });
+      tdName.appendChild(nameInput);
+
+      const tdFmt=document.createElement('td'); tdFmt.textContent=format||'-';
+
+      const tdCnt=document.createElement('td'); tdCnt.className='count'; tdCnt.textContent=count||0;
+
+      const tdPrice=document.createElement('td'); tdPrice.className='right'; const pInput=document.createElement('input');
+      pInput.className='small'; pInput.type='number'; pInput.step='0.01'; pInput.min='0'; pInput.placeholder='0.00'; pInput.value=(+price||0).toFixed(2);
+      pInput.addEventListener('change',()=>{ const it=counts.get(code); if(!it) return; it.price=parseFloat(pInput.value||'0')||0; save(); render(); });
+      tdPrice.appendChild(pInput);
+
+      const tdLine=document.createElement('td'); tdLine.className='right'; tdLine.textContent=fmt((+price||0)*(+count||0));
+
+      const tdAct=document.createElement('td'); const row=document.createElement('div'); row.className='row-actions';
+      const plus=btn('+1',()=>adjust(code,+1)); const minus=btn('−1',()=>adjust(code,-1)); const del=btn('Remove',()=>remove(code)); del.classList.add('secondary');
+      row.append(plus,minus,del); tdAct.appendChild(row);
+
+      tr.append(tdCode,tdName,tdFmt,tdCnt,tdPrice,tdLine,tdAct); bodyEl.appendChild(tr);
+    }
+    updateTotals(); save();
+  }
+
+  function adjust(code,delta){ const it=counts.get(code); if(!it) return; it.count=Math.max(0,(it.count||0)+delta); if(it.count===0) counts.delete(code); render(); }
+  function remove(code){ counts.delete(code); render(); }
+  function haptic(){ try{ navigator.vibrate?.(30);}catch{} }
+
+  function handleHit(code,format){
+    const now=Date.now(), cd=parseInt(cooldownInput.value||0,10)||0;
+    if(code===lastSeen.code && (now-lastSeen.time)<cd) return;
+    lastSeen={code,time:now};
+
+    const prod=productDB[code];
+    const entry=counts.get(code)||{count:0,format, name:'', price:0};
+    entry.count+=1; entry.format=entry.format||format;
+    if(prod){ entry.name=prod.name||entry.name; entry.price=+prod.price||0; }
+    counts.set(code,entry);
+
+    history.push({code,delta:+1}); lastScanCode=code;
+    lastScan.textContent=`Last scan: ${code} · ${(entry.name||'Unknown')} · ${new Date().toLocaleTimeString()}`;
+    render(); beep(); haptic();
+    setTimeout(()=>{ lastScanCode=null; const el=bodyEl.querySelector('tr.highlight'); if(el) el.classList.remove('highlight'); }, 1200);
+  }
+
+  undoBtn.addEventListener('click', ()=>{ const h=history.pop(); if(!h) return; adjust(h.code,-h.delta); });
+  addManual.addEventListener('click', ()=>{ const code=(manualInput.value||'').trim(); if(!code) return; handleHit(code,'MANUAL'); manualInput.value=''; manualInput.focus(); });
+  manualInput.addEventListener('keydown', e=>{ if(e.key==='Enter') addManual.click(); });
+  clearAll.addEventListener('click', ()=>{ if(!confirm('Clear all scanned items?')) return; counts.clear(); history.length=0; render(); lastScan.textContent=''; });
+
+  /* Export with File System Access API (fallback to download) */
+  exportBtn.addEventListener('click', async ()=>{
+    const rows=[['barcode','name','format','count','unit_price','line_total']];
+    counts.forEach((v,k)=>{ const c=+v.count||0, u=+v.price||0, L=c*u; rows.push([k, v.name||'', v.format||'', String(c), u.toFixed(2), L.toFixed(2)]); });
+    rows.push([]); rows.push(['GRAND TOTAL','','','','', grand().toFixed(2)]);
+    const csv = rows.map(r=> r.map(cell=>{ const s=String(cell??''); return /[",\n]/.test(s)? '"'+s.replace(/"/g,'""')+'"' : s; }).join(',')).join('\n');
+    const filename='barcode-counts-'+new Date().toISOString().slice(0,19).replace(/[:T]/g,'-')+'.csv';
+    if('showSaveFilePicker' in window){
+      try{ const h=await window.showSaveFilePicker({suggestedName:filename, types:[{description:'CSV Files', accept:{'text/csv':['.csv']}}]});
+           const w=await h.createWritable(); await w.write(new Blob([csv],{type:'text/csv'})); await w.close(); return; }
+      catch(e){ console.warn('Save cancelled/fails; using download fallback', e); }
+    }
+    const blob=new Blob([csv],{type:'text/csv'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=filename; a.click(); URL.revokeObjectURL(a.href);
+  });
+
+  /* Camera / ZXing (guarded so app never crashes) */
+  let codeReader=null;
+  try{ if (window.ZXing && ZXing.BrowserMultiFormatReader){ codeReader=new ZXing.BrowserMultiFormatReader(); } }
+  catch(e){ console.warn('ZXing init failed', e); }
+
+  async function listCameras(){
+    try{
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const cams = devices.filter(d=> d.kind==='videoinput');
+      cameraSelect.innerHTML='';
+      cams.forEach((d,i)=>{ const opt=document.createElement('option'); opt.value=d.deviceId; opt.textContent=d.label||`Camera ${i+1}`; cameraSelect.appendChild(opt); });
+      const back=cams.find(d=>/back|rear|environment/i.test(d.label||'')); if(back) cameraSelect.value=back.deviceId;
+    }catch(e){ console.warn('enumerateDevices failed', e); }
+  }
+
+  async function stop(){
+    try{ controls?.stop(); }catch{} controls=null;
+    try{ currentTrack?.stop(); }catch{} currentTrack=null;
+    if(video.srcObject){ try{ video.srcObject.getTracks().forEach(t=>t.stop()); }catch{} video.srcObject=null; }
+    setLive(false);
+  }
+
+  async function start(){
+    if(!codeReader){
+      scanStatus.textContent='Scanner library unavailable. Use Manual Add.';
+      alert('Scanner library unavailable (CDN blocked or offline). You can still use Manual Add.');
+      return;
+    }
+    await stop();
+    const deviceId=cameraSelect.value||undefined;
+    setLive(true);
+    try{
+      controls = await codeReader.decodeFromVideoDevice(deviceId, video, (result, err, _controls)=>{
+        if(_controls && !controls) controls=_controls;
+        if(result){
+          const text = result.getText ? result.getText() : String(result.text||'');
+          const fmt  = result.getBarcodeFormat ? result.getBarcodeFormat() : (result.format||'');
+          handleHit(text, String(fmt));
+        }
+      });
+      const stream=video.srcObject; if(stream){ currentTrack=stream.getVideoTracks()[0]||null; }
+      scanStatus.textContent='';
+    }catch(e){
+      console.error(e);
+      scanStatus.textContent='Failed to start camera. Use HTTPS/localhost and allow camera.';
+      alert('Failed to start camera. Make sure you used HTTPS or http://localhost and allowed camera access.');
+      setLive(false);
+    }
+  }
+
+  async function torchSupported(track){ try{ const cap=track.getCapabilities?.(); return !!(cap && 'torch' in cap && cap.torch);}catch{return false;} }
+  torchBtn.addEventListener('click', async ()=>{
+    if(!currentTrack) return;
+    if(!(await torchSupported(currentTrack))){ alert('Torch not supported on this device/browser.'); return; }
+    try{ torchOn=!torchOn; await currentTrack.applyConstraints({advanced:[{torch:torchOn}]}); torchBtn.textContent=torchOn?'🔦 Torch On':'🔦 Torch'; torchBtn.setAttribute('aria-pressed', torchOn?'true':'false'); }
+    catch{ alert('Torch not supported on this device/browser.'); torchOn=false; }
+  });
+
+  cameraSelect.addEventListener('change', ()=>{ if(scanning) start(); });
+  document.addEventListener('visibilitychange', ()=>{ if(document.hidden) stop(); });
+  filterInput.addEventListener('input', render);
+  currencyInput.addEventListener('change', ()=>{ save(); render(); });
+
+  startBtn.addEventListener('click', start);
+  stopBtn.addEventListener('click', stop);
+
+  (async()=>{
+    if(!('mediaDevices' in navigator)){ scanStatus.textContent='Camera API not supported in this browser.'; }
+    await listCameras();
+  })();
+})();
+</script>
+</body>
+</html>
